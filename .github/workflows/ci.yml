@@ -19,17 +19,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.0
 
       - name: Basic syntax check
         run: python3 -m py_compile app.py
-
-      - name: Set image ref
-        id: vars
-        run: |
-          echo "IMAGE_REF=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_ENV"
-          echo "IMAGE_DIGEST_REF=${IMAGE_NAME}@sha256:placeholder" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -56,14 +53,14 @@ jobs:
         run: |
           echo "IMAGE_DIGEST_REF=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
 
-      - name: Generate SBOM (SPDX JSON)
+      - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.IMAGE_DIGEST_REF }}
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - name: Upload SBOM as workflow artifact
+      - name: Upload SBOM as artifact
         uses: actions/upload-artifact@v4
         with:
           name: sbom
@@ -76,24 +73,21 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4
-
-      - name: Sign image with Cosign (keyless)
+      - name: Sign image with Cosign
         run: |
           cosign sign --yes "${IMAGE_DIGEST_REF}"
 
-      - name: Verify image signature and provenance in CI
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify image signature
         run: |
-          chmod +x scripts/*.sh
-          ./scripts/verify-image.sh "${IMAGE_DIGEST_REF}" "${{ github.repository }}" ".github/workflows/ci.yml" "main"
+          cosign verify \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE_DIGEST_REF}"
 
-      - name: Print deliverables
+      - name: Print outputs
         run: |
-          echo "Built image tag:      ${IMAGE_NAME}:${GITHUB_SHA}"
-          echo "Built image digest:   ${IMAGE_DIGEST_REF}"
-          echo "SBOM artifact:        sbom.spdx.json"
-          echo "Provenance:           GitHub artifact attestation attached to image"
-          echo "Signature:            Cosign keyless signature attached to image"
+          echo "Built image tag:    ${IMAGE_NAME}:${GITHUB_SHA}"
+          echo "Built image digest: ${IMAGE_DIGEST_REF}"
+          echo "SBOM artifact:      sbom.spdx.json"
+          echo "Provenance:         GitHub attestation attached to image"
+          echo "Signature:          Cosign signature attached to image"
