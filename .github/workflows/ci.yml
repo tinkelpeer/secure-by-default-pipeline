@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
 
       - name: Basic syntax check
         run: python3 -m py_compile app.py
