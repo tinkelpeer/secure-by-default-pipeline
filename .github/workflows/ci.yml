@@ -1,0 +1,99 @@
+name: secure-supply-chain-ci
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-sign-attest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Basic syntax check
+        run: python3 -m py_compile app.py
+
+      - name: Set image ref
+        id: vars
+        run: |
+          echo "IMAGE_REF=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "IMAGE_DIGEST_REF=${IMAGE_NAME}@sha256:placeholder" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push container image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Export immutable image ref
+        run: |
+          echo "IMAGE_DIGEST_REF=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_DIGEST_REF }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+
+      - name: Generate provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign image with Cosign (keyless)
+        run: |
+          cosign sign --yes "${IMAGE_DIGEST_REF}"
+
+      - name: Verify image signature and provenance in CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/verify-image.sh "${IMAGE_DIGEST_REF}" "${{ github.repository }}" ".github/workflows/ci.yml" "main"
+
+      - name: Print deliverables
+        run: |
+          echo "Built image tag:      ${IMAGE_NAME}:${GITHUB_SHA}"
+          echo "Built image digest:   ${IMAGE_DIGEST_REF}"
+          echo "SBOM artifact:        sbom.spdx.json"
+          echo "Provenance:           GitHub artifact attestation attached to image"
+          echo "Signature:            Cosign keyless signature attached to image"
