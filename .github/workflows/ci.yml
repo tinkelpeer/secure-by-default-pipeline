@@ -5,52 +5,75 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
+  EXPECTED_WORKFLOW_PATH: .github/workflows/ci.yml
+  EXPECTED_BRANCH: main
+  SBOM_FILE: sbom.spdx.json
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
-  build-sign-attest:
+  build-sign-attest-verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.0
 
       - name: Basic syntax check
-        run: python3 -m py_compile app.py
+        run: python -m py_compile app.py
+
+      - name: Audit pinned Python dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4.0.0
 
       - name: Build and push container image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v6.17.0
         with:
           context: .
           file: ./Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=secure-by-default-pipeline
 
-      - name: Export immutable image ref
+      - name: Export immutable image reference
         run: |
+          echo "IMAGE_DIGEST=${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
           echo "IMAGE_DIGEST_REF=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
 
       - name: Generate SBOM
@@ -58,36 +81,56 @@ jobs:
         with:
           image: ${{ env.IMAGE_DIGEST_REF }}
           format: spdx-json
-          output-file: sbom.spdx.json
+          output-file: ${{ env.SBOM_FILE }}
 
-      - name: Upload SBOM as artifact
+      - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sbom
-          path: sbom.spdx.json
+          name: ${{ env.SBOM_FILE }}
+          path: ${{ env.SBOM_FILE }}
 
       - name: Generate provenance attestation
+        id: provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      - name: Generate SBOM attestation
+        id: sbom_attestation
+        uses: actions/attest@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ env.SBOM_FILE }}
+          push-to-registry: true
+
       - name: Sign image with Cosign
-        run: |
-          cosign sign --yes "${IMAGE_DIGEST_REF}"
+        run: cosign sign --yes "${IMAGE_DIGEST_REF}"
 
-      - name: Verify image signature
+      - name: Verify policy (expected allow)
         run: |
-          cosign verify \
-            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@refs/heads/main" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            "${IMAGE_DIGEST_REF}"
+          chmod +x scripts/*.sh
+          ./scripts/verify-image.sh "${IMAGE_DIGEST_REF}" "${GITHUB_REPOSITORY}" "${EXPECTED_WORKFLOW_PATH}" "${EXPECTED_BRANCH}"
 
-      - name: Print outputs
+      - name: Verify policy (expected deny)
+        run: ./scripts/deny-example.sh "${IMAGE_DIGEST_REF}" "${GITHUB_REPOSITORY}"
+
+      - name: Summarize release evidence
         run: |
-          echo "Built image tag:    ${IMAGE_NAME}:${GITHUB_SHA}"
-          echo "Built image digest: ${IMAGE_DIGEST_REF}"
-          echo "SBOM artifact:      sbom.spdx.json"
-          echo "Provenance:         GitHub attestation attached to image"
-          echo "Signature:          Cosign signature attached to image"
+          {
+            echo "## Secure-by-default evidence"
+            echo
+            echo "- **Immutable image**: \`${IMAGE_DIGEST_REF}\`"
+            echo "- **SBOM artifact**: \`${SBOM_FILE}\`"
+            echo "- **Cosign identity**: \`https://github.com/${GITHUB_REPOSITORY}/${EXPECTED_WORKFLOW_PATH}@refs/heads/${EXPECTED_BRANCH}\`"
+            echo "- **Provenance attestation**: ${{ steps.provenance.outputs.attestation-url }}"
+            echo "- **SBOM attestation**: ${{ steps.sbom_attestation.outputs.attestation-url }}"
+            echo
+            echo "### Copy/paste verification"
+            echo '```bash'
+            echo "./scripts/verify-image.sh ${IMAGE_DIGEST_REF} ${GITHUB_REPOSITORY} ${EXPECTED_WORKFLOW_PATH} ${EXPECTED_BRANCH}"
+            echo "./scripts/deny-example.sh ${IMAGE_DIGEST_REF} ${GITHUB_REPOSITORY}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
