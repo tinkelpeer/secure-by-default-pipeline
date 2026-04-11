@@ -99,7 +99,7 @@ jobs:
 
       - name: Generate SBOM attestation
         id: sbom_attestation
-        uses: actions/attest-sbom@v3
+        uses: actions/attest-sbom@v4
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
