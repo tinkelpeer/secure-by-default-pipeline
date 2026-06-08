@@ -1,135 +1,55 @@
-# Threat model for the secure-by-default pipeline
-
-This document translates the thesis proposal into a concrete threat model for the prototype pipeline.
+# Threat model
 
 ## Security objective
 
-The main goal is **not** to prove that software is bug-free or malware-free.
+The objective is not to prove that a container image is bug-free or malware-free. The objective is to reject images that cannot be cryptographically linked to the expected GitHub repository, release workflow, branch, and dependency inventory.
 
-The goal is narrower and more realistic:
+The protected user is a research-software maintainer or consumer who wants a simple way to decide whether a container image should be trusted enough to run.
 
-> only allow container images that can be cryptographically linked to the expected repository, workflow, and build context, and reject images that lack verifiable provenance.
+## Attacker capabilities
 
-## Attacker model
+The attacker may attempt to:
 
-The attacker may be able to:
+1. publish a lookalike image;
+2. replace a legitimate image with another digest;
+3. abuse mutable tags such as `latest`;
+4. introduce a malicious dependency in a pull request;
+5. compromise an upstream package account or release channel;
+6. modify a workflow so a release is built under weaker controls;
+7. exploit the fact that consumers often do not check signatures, provenance, or SBOMs.
 
-1. publish or distribute an alternative image under a misleading name
-2. try to make consumers run an image that did not come from the expected workflow
-3. tamper with tags such as `latest`
-4. introduce a malicious or unexpected dependency in a pull request
-5. compromise an upstream package account or dependency release channel
-6. exploit weak review practices around dependency or workflow changes
+## Trust assumptions
 
-The attacker is **not** assumed to have full control over:
+The prototype assumes that GitHub Actions OIDC, Sigstore/Cosign verification, GitHub artifact attestations, and the underlying cryptographic primitives behave as intended. It does not defend against a complete compromise of those trust roots.
 
-- GitHub’s OIDC issuer
-- Sigstore’s trust root and transparency mechanisms
-- the cryptographic verification tools themselves
+## Strongly mitigated threats
 
-## What the pipeline protects against well
+### Artifact substitution
 
-### 1. Artifact substitution
+A substituted image has a different digest. The verification script accepts only immutable `@sha256:` references and requires a valid signature for the expected GitHub Actions identity.
 
-Attack:
-A malicious image is presented as if it were the legitimate release.
+### Unauthorized publication
 
-Protection:
-Verification requires an immutable digest reference plus a valid Cosign keyless signature for the expected workflow identity.
+A third party may be able to publish a container image somewhere, but the image will not satisfy the expected certificate identity and attestation signer workflow unless it came from the approved release workflow.
 
-Effect:
-A different image digest without the right signature is rejected.
+### Tag confusion
 
-### 2. Unauthorized publication
+The verification script refuses mutable tag references. Users must verify the digest they intend to run.
 
-Attack:
-An attacker pushes an image to a registry or republishes a lookalike image.
+### Missing transparency
 
-Protection:
-Verification checks both the Cosign signing identity and the GitHub attestation signer workflow.
+The release workflow generates an SPDX SBOM and attaches it as a signed SBOM attestation. Consumers can check that dependency metadata exists for the same digest they are verifying.
 
-Effect:
-Even if the image exists in a registry, it is rejected unless it was signed and attested by the approved workflow.
+## Partially mitigated threats
 
-### 3. Tag confusion and mutable release channels
+### Malicious upstream dependencies
 
-Attack:
-A consumer verifies `latest` or another mutable tag and later gets different content.
+If an upstream package is malicious but the project legitimately builds it, the image may still be signed and attested. The pipeline can show what was built and from where, but it cannot magically prove that all inputs were benign. For this reason, the prototype adds dependency review, Dependabot, pinned direct dependencies, and optional vulnerability auditing.
 
-Protection:
-The verification script refuses non-digest references.
+### Malicious approved workflow changes
 
-Effect:
-Consumers must verify `@sha256:...`, which is stable and unambiguous.
+If maintainers review and merge a malicious workflow change, the release may still come from the expected repository. This risk has to be reduced by branch protection, review rules, and keeping the verification policy tied to a narrow workflow path.
 
-### 4. Missing transparency
+## Residual risk
 
-Attack:
-A build artifact is consumed without any dependency inventory.
-
-Protection:
-The pipeline generates an SPDX SBOM and also creates an SBOM attestation bound to the image subject.
-
-Effect:
-Consumers can verify both provenance and dependency transparency.
-
-## What the pipeline only partially protects against
-
-### Axios-style supply-chain compromise
-
-Representative scenario:
-A legitimate upstream dependency release is malicious, but the build itself still runs in the correct repository and workflow.
-
-What the pipeline still guarantees:
-
-- the image really came from the declared repository/workflow
-- the image digest is authentic
-- the provenance and SBOM are authentic
-- the malicious dependency should become visible in the SBOM / dependency diff once known or reviewed
-
-What the pipeline does **not** guarantee:
-
-- that the upstream dependency was benign at build time
-- that newly published malicious packages are already detected by vulnerability feeds
-- that a legitimate build cannot produce a malicious result if the dependency input itself is malicious
-
-So provenance answers:
-
-> “Did this image come from the build process we trust?”
-
-It does **not** answer:
-
-> “Were all dependencies used in that build safe?”
-
-## Extra controls added in this version for that gap
-
-To respond to this limitation, this repo now includes:
-
-- **dependency review on pull requests**
-  - blocks merges when dependency changes introduce moderate-or-higher known vulnerabilities
-- **Dependabot updates**
-  - keeps Python packages and GitHub Actions under review
-- **pinned Python dependencies in `requirements.txt`**
-  - avoids fully floating direct dependencies
-
-## Residual risk that remains
-
-The prototype still does not fully solve:
-
-- malicious dependencies that are too new to be flagged
-- compromised maintainers of trusted upstream projects
-- malicious workflow changes that are themselves reviewed and merged
-- compromised self-hosted runners
-- malicious base images if the base image reference is not digest-pinned
-
-## Why this is a meaningful thesis prototype
-
-This is valuable because it makes a clear security improvement over a baseline GitHub Actions release flow:
-
-- consumers can verify **who** built the image
-- consumers can verify **which workflow** built it
-- consumers can verify **which git ref** built it
-- consumers can verify **what dependency inventory** was declared
-- consumers can reject images that do not satisfy these claims
-
-That is a concrete, demonstrable increase in security assurance.
+The design leaves several risks in scope for discussion but not full solution: compromised maintainers, malicious but not-yet-flagged dependencies, compromised trust roots, incomplete SBOMs, and reproducibility gaps caused by timestamps, package repositories, or mutable base images.
