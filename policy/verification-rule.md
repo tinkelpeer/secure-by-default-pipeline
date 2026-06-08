@@ -1,37 +1,23 @@
-# Verification Rule
+# Verification rule
 
-## Rule
+The pipeline is deny-by-default. A container image is allowed only if all checks below pass.
 
-An image is allowed **only if all of the following are true**:
+1. The image reference must be immutable: `ghcr.io/<owner>/<repo>@sha256:<digest>`.
+2. The image digest must have a valid Cosign keyless signature.
+3. The signing certificate identity must equal `https://github.com/<owner>/<repo>/.github/workflows/secure-release.yml@refs/heads/main`.
+4. The signing certificate issuer must be `https://token.actions.githubusercontent.com`.
+5. A valid SLSA provenance attestation must be attached to the same image digest.
+6. The provenance attestation must be signed by the expected repository, workflow, and branch.
+7. A valid SPDX SBOM attestation must be attached to the same image digest.
 
-1. The image is referenced by immutable digest (`@sha256:...`)
-2. The image has a valid **Cosign** signature
-3. The Cosign certificate identity is exactly:
+## Why the rule is explainable
 
-   `https://github.com/<OWNER>/<REPO>/.github/workflows/ci.yml@refs/heads/main`
+- Digest references avoid trusting mutable tags such as `latest`.
+- Signatures bind the digest to a signing identity.
+- Provenance says where and how the image was built.
+- The SBOM says which components were present in the artifact.
+- The deny example proves that "signed by someone" is not enough; the workflow identity has to match.
 
-4. The signature certificate issuer is:
+## What the rule does not prove
 
-   `https://token.actions.githubusercontent.com`
-
-5. The image has a valid **GitHub SLSA provenance attestation**
-6. The provenance attestation is verified against the same repository, workflow, and git ref
-7. The image has a valid **SPDX SBOM attestation**
-
-## Why this is a good demo rule
-
-This is easy to explain live:
-
-- **Signature** proves the image digest was signed
-- **Keyless identity** proves *which GitHub Actions workflow* signed it
-- **Provenance attestation** proves *where and how* it was built
-- **SBOM attestation** proves *there is a signed dependency inventory bound to the same image subject*
-- **Digest-only verification** prevents trust in mutable tags such as `latest`
-- **Default deny** means anything missing one of these checks is rejected
-
-## Important limitation
-
-This rule proves **origin, integrity, and traceability**.
-It does **not** prove that every dependency used during a legitimate build was safe.
-
-For that residual risk, see `docs/threat-model.md`.
+This policy proves origin, integrity of the published digest, and dependency transparency. It does not prove that every dependency was safe when the build ran. That residual risk is reduced, but not eliminated, through dependency review, pinned direct dependencies, SBOM inspection, and vulnerability scanning.
