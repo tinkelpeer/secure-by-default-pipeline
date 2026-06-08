@@ -1,176 +1,105 @@
-# V2 Secure-by-Default Container Supply Chain Pipeline
+# Secure-by-default supply-chain pipeline for containerised research software
 
-This repository is an iteration of a secure-by-default container pipeline.
+This repository is the thesis prototype: a small, opinionated reference pipeline for GitHub repositories that build OCI-compatible container images. It is designed to be easy to inspect, easy to explain, and strict enough to reject images that do not have verifiable origin and dependency transparency.
 
-It demonstrates how a container image can be built, signed, attested, and verified with an explicit deny-by-default policy based on build identity and immutable image digests.
+## What this repository gives you
 
-## What this version changes
+- A GitHub Actions release workflow that builds and pushes a container image to GHCR.
+- An SPDX SBOM for the pushed image.
+- A GitHub SLSA provenance attestation.
+- A GitHub SBOM attestation.
+- A Cosign keyless signature bound to the GitHub Actions workflow identity.
+- A deny-by-default verification script.
+- A small CLI and web dashboard for checking whether the repository contains the expected controls.
+- Documentation for the threat model, verification policy, user guide, and evaluation protocol.
 
-This version introduces several structural improvements:
+## The simple rule
 
-1. **Consistent SBOM handling**
-   - exactly one SBOM file is generated: `sbom.spdx.json`
-   - the uploaded GitHub artifact uses the same filename
-   - the same SBOM is also attested, so its relation to the image can be verified cryptographically
+Do not run an image unless all of the following are true:
 
-2. **Reduced build-artifact ambiguity**
-   - Docker Buildx can upload a build record artifact by default
-   - this workflow disables that upload using `DOCKER_BUILD_RECORD_UPLOAD=false`
-   - the pipeline output is therefore limited to the intended security-relevant artifacts
+1. You are verifying an immutable digest reference, not a mutable tag.
+2. The digest has a valid Cosign keyless signature.
+3. The signing identity is the expected GitHub Actions workflow.
+4. The image has a valid provenance attestation from the expected repository/workflow/ref.
+5. The same image has a valid SPDX SBOM attestation.
 
-3. **Reproducible verification**
-   - verification checks three artifact classes:
-     - Cosign signature
-     - GitHub provenance attestation
-     - GitHub SBOM attestation
-   - the verification script validates the expected workflow path and branch explicitly
+That is the thesis prototype in one sentence: **make unsigned, unauthenticated, or undocumented images fail by default**.
 
-4. **Explicit allow and deny behavior**
-   - the workflow includes a successful verification case
-   - it also includes a negative verification case using the wrong workflow identity
-   - this demonstrates that policy evaluation depends on the expected build identity, not only on the existence of a signature
+## Quick start for maintainers
 
-5. **More explicit threat-model scope**
-   - a pull-request dependency review workflow is included
-   - Dependabot is configured for Python dependencies and GitHub Actions
-   - the repository distinguishes between threats that provenance mitigates and threats it only partially addresses
-
-## What the pipeline produces
-
-For every push to `main`, the pipeline produces:
-
-- a container image in GHCR
-- one SBOM file: `sbom.spdx.json`
-- one **provenance attestation** for the image
-- one **SBOM attestation** bound to the image
-- one **Cosign keyless signature** bound to the immutable image digest
-
-The workflow summary also prints:
-
-- the immutable image reference
-- the provenance attestation URL
-- the SBOM attestation URL
-- example commands for local verification
-
-## Security policy enforced by `verify-image.sh`
-
-An image is allowed only if all of the following are true:
-
-1. the image reference is immutable (`@sha256:...`)
-2. a valid Cosign keyless signature exists
-3. the Cosign certificate identity is exactly the expected GitHub Actions workflow
-4. the OIDC issuer is `https://token.actions.githubusercontent.com`
-5. a valid SLSA provenance attestation exists
-6. the provenance attestation was created by the expected repository, workflow, and ref
-7. a valid SPDX SBOM attestation exists for the same image
-
-This defines a deny-by-default policy based on verifiable origin, integrity, and traceability.
-
-## Image reference format
-
-Verification must be performed against an immutable image digest.
-
-Correct:
+Install and run the local checker:
 
 ```bash
-ghcr.io/tinkelpeer/secure-by-default-pipeline@sha256:<digest>
+python -m pip install -r requirements-dev.txt
+python -m sbd_pipeline.cli check --repo . --format table
 ```
 
-Incorrect:
+Generate a report:
 
 ```bash
-ghcr.io/tinkelpeer/secure-by-default-pipeline:sha256-<digest>
+python -m sbd_pipeline.cli check --repo . --format markdown --output secure-pipeline-report.md
 ```
 
-Cosign signatures are attached to the image digest, not to a tag-like reference such as `:sha256-...`.
-
-## Quick start
-
-### 1. Push to a public GitHub repository
-
-Push this repository to GitHub and make sure Actions are enabled.
-
-### 2. Run the workflow on `main`
-
-The main workflow will:
-
-- build and push the image
-- generate the SBOM
-- create provenance and SBOM attestations
-- sign the image with Cosign
-- verify the image with the expected policy
-- verify that an incorrect policy is denied
-
-### 3. Copy the immutable digest reference from the workflow summary
-
-The summary will contain an image reference like:
+Run the dashboard:
 
 ```bash
-ghcr.io/<OWNER>/<REPO>@sha256:<DIGEST>
+python -m pip install -r requirements.txt
+python app.py
 ```
 
-### 4. Verify locally
+Open `http://127.0.0.1:8080`.
 
-Install:
+## How to use the release pipeline
 
-- Docker
-- GitHub CLI (`gh`)
-- Cosign
-- `jq` (optional, only needed for the attestation inspection helper)
-
-Run:
+1. Push this repository to GitHub.
+2. Adjust `policy/default-policy.yml` so `repository` matches `owner/repo`.
+3. Enable Actions and packages.
+4. Push to `main` or manually run the `secure-release` workflow.
+5. Copy the immutable image reference from the workflow summary.
+6. Verify the release:
 
 ```bash
-chmod +x scripts/*.sh
-./scripts/verify-image.sh ghcr.io/<OWNER>/<REPO>@sha256:<DIGEST> <OWNER>/<REPO> .github/workflows/ci.yml main
+./scripts/verify-image.sh \
+  ghcr.io/<owner>/<repo>@sha256:<digest> \
+  <owner>/<repo> \
+  .github/workflows/secure-release.yml \
+  main
 ```
 
-Expected result:
-
-- Cosign signature verification passes
-- provenance attestation verification passes
-- SBOM attestation verification passes
-- final policy result is `ALLOW`
-
-### 5. Run the deny example
+7. Prove the deny rule works:
 
 ```bash
-./scripts/deny-example.sh ghcr.io/<OWNER>/<REPO>@sha256:<DIGEST> <OWNER>/<REPO>
+./scripts/deny-example.sh ghcr.io/<owner>/<repo>@sha256:<digest> <owner>/<repo>
 ```
 
-Expected result:
+Expected result: `DENY`.
 
-- verification fails because the expected workflow identity is intentionally incorrect
-- final result is `EXPECTED RESULT: DENY`
+## Repository map
 
-## Scripts
+```text
+.github/workflows/secure-release.yml  build, sign, attest, verify
+.github/workflows/checks.yml          tests and static policy checks
+.github/workflows/dependency-review.yml dependency review on PRs
+sbd_pipeline/                         CLI and dashboard source code
+scripts/verify-image.sh               real cryptographic verification
+scripts/deny-example.sh               negative policy test
+policy/default-policy.yml             expected repository/workflow/ref
+docs/threat-model.md                  attacker model and residual risk
+docs/user-guide.md                    copy-paste usage instructions
+docs/evaluation-protocol.md           thesis measurement plan
+tests/                                unit tests for the checker
+```
 
-### `scripts/verify-image.sh`
+## What the pipeline protects against
 
-Verifies:
+It protects well against artifact substitution, tag confusion, unauthorized publication from the wrong workflow identity, and missing dependency transparency.
 
-- exact GitHub Actions workflow identity via Cosign certificate identity
-- provenance attestation via `gh attestation verify`
-- SPDX SBOM attestation via `gh attestation verify --predicate-type https://spdx.dev/Document/v2.3`
+It only partially protects against malicious upstream dependencies. If a legitimate workflow builds a malicious dependency, provenance still proves that the expected workflow built the image; it does not prove that all inputs were safe. That is why this repository also includes dependency review, Dependabot, pinned direct dependencies, and clear residual-risk documentation.
 
-### `scripts/deny-example.sh`
-
-Runs the same verification logic with an incorrect workflow file path and should therefore fail.
-
-### `scripts/show-attestation-claims.sh`
-
-Prints selected attestation claims as JSON to show which claims are being checked.
-
-Example:
+## Development
 
 ```bash
-./scripts/show-attestation-claims.sh ghcr.io/<OWNER>/<REPO>@sha256:<DIGEST> <OWNER>/<REPO>
+python -m pip install -r requirements-dev.txt
+python -m pytest
+python -m sbd_pipeline.cli check --repo . --format table
 ```
-
-## Threat model summary
-
-This pipeline mainly protects against artifact substitution, unauthorized publication, and use of images without verifiable provenance.
-
-It does not prove that every dependency used during a legitimate build was benign.
-
-For the full version, see [`docs/threat-model.md`](docs/threat-model.md).

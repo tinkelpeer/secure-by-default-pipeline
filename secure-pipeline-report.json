@@ -1,0 +1,214 @@
+{
+  "generated_at": "2026-06-08T14:00:31.477224+00:00",
+  "summary": {
+    "pass": 28,
+    "warn": 1,
+    "fail": 0,
+    "total": 29
+  },
+  "checks": [
+    {
+      "name": "release workflow exists",
+      "status": "pass",
+      "evidence": ".github/workflows/secure-release.yml",
+      "remediation": "Keep the release workflow under version control.",
+      "category": "workflow"
+    },
+    {
+      "name": "workflow permission: contents:read",
+      "status": "pass",
+      "evidence": "contents:read is present in .github/workflows/secure-release.yml",
+      "remediation": "Set `contents: read` in the release job permissions; it is needed to read source.",
+      "category": "workflow"
+    },
+    {
+      "name": "workflow permission: packages:write",
+      "status": "pass",
+      "evidence": "packages:write is present in .github/workflows/secure-release.yml",
+      "remediation": "Set `packages: write` in the release job permissions; it is needed to push the container image.",
+      "category": "workflow"
+    },
+    {
+      "name": "workflow permission: id-token:write",
+      "status": "pass",
+      "evidence": "id-token:write is present in .github/workflows/secure-release.yml",
+      "remediation": "Set `id-token: write` in the release job permissions; it is needed to request OIDC identity for keyless signing.",
+      "category": "workflow"
+    },
+    {
+      "name": "workflow permission: attestations:write",
+      "status": "pass",
+      "evidence": "attestations:write is present in .github/workflows/secure-release.yml",
+      "remediation": "Set `attestations: write` in the release job permissions; it is needed to publish GitHub attestations.",
+      "category": "workflow"
+    },
+    {
+      "name": "build image with Buildx",
+      "status": "pass",
+      "evidence": "Token `docker/build-push-action` found in .github/workflows/secure-release.yml",
+      "remediation": "Use docker/build-push-action so the workflow exposes the pushed digest.",
+      "category": "workflow"
+    },
+    {
+      "name": "export immutable digest",
+      "status": "pass",
+      "evidence": "Token `steps.build.outputs.digest` found in .github/workflows/secure-release.yml",
+      "remediation": "Store the digest and verify the digest reference, not a mutable tag.",
+      "category": "workflow"
+    },
+    {
+      "name": "generate SPDX SBOM",
+      "status": "pass",
+      "evidence": "Token `anchore/sbom-action` found in .github/workflows/secure-release.yml",
+      "remediation": "Generate an SBOM during the release workflow.",
+      "category": "workflow"
+    },
+    {
+      "name": "attest build provenance",
+      "status": "pass",
+      "evidence": "Token `actions/attest-build-provenance` found in .github/workflows/secure-release.yml",
+      "remediation": "Add GitHub's provenance attestation action.",
+      "category": "workflow"
+    },
+    {
+      "name": "attest SBOM",
+      "status": "pass",
+      "evidence": "Token `actions/attest-sbom` found in .github/workflows/secure-release.yml",
+      "remediation": "Add an SBOM attestation bound to the image digest.",
+      "category": "workflow"
+    },
+    {
+      "name": "cosign keyless signing",
+      "status": "pass",
+      "evidence": "Token `cosign sign` found in .github/workflows/secure-release.yml",
+      "remediation": "Sign the pushed digest with Cosign keyless signing.",
+      "category": "workflow"
+    },
+    {
+      "name": "local policy verification",
+      "status": "pass",
+      "evidence": "Token `verify-image.sh` found in .github/workflows/secure-release.yml",
+      "remediation": "Call the verification script from CI so failures are visible immediately.",
+      "category": "workflow"
+    },
+    {
+      "name": "negative deny example",
+      "status": "pass",
+      "evidence": "Token `deny-example.sh` found in .github/workflows/secure-release.yml",
+      "remediation": "Demonstrate that the policy rejects the wrong workflow identity.",
+      "category": "workflow"
+    },
+    {
+      "name": "digest-only gate",
+      "status": "pass",
+      "evidence": "Token `@sha256:` found in scripts/verify-image.sh",
+      "remediation": "Reject image references that are not immutable digest references.",
+      "category": "verification"
+    },
+    {
+      "name": "cosign verify",
+      "status": "pass",
+      "evidence": "Token `cosign verify` found in scripts/verify-image.sh",
+      "remediation": "Verify the keyless signature.",
+      "category": "verification"
+    },
+    {
+      "name": "expected identity",
+      "status": "pass",
+      "evidence": "Token `--certificate-identity` found in scripts/verify-image.sh",
+      "remediation": "Bind the signature to the expected GitHub workflow identity.",
+      "category": "verification"
+    },
+    {
+      "name": "OIDC issuer",
+      "status": "pass",
+      "evidence": "Token `--certificate-oidc-issuer` found in scripts/verify-image.sh",
+      "remediation": "Require GitHub's Actions OIDC issuer.",
+      "category": "verification"
+    },
+    {
+      "name": "provenance verification",
+      "status": "pass",
+      "evidence": "Token `gh attestation verify` found in scripts/verify-image.sh",
+      "remediation": "Verify GitHub artifact attestations.",
+      "category": "verification"
+    },
+    {
+      "name": "SBOM predicate",
+      "status": "pass",
+      "evidence": "Token `spdx.dev` found in scripts/verify-image.sh",
+      "remediation": "Require an SPDX SBOM attestation.",
+      "category": "verification"
+    },
+    {
+      "name": "pinned Python dependencies",
+      "status": "pass",
+      "evidence": "All direct requirements use == pins.",
+      "remediation": "Pin direct dependencies with == and use Dependabot/dependency review for controlled updates.",
+      "category": "dependencies"
+    },
+    {
+      "name": "Dockerfile exists",
+      "status": "pass",
+      "evidence": "Dockerfile found.",
+      "remediation": "Keep it minimal and reproducible.",
+      "category": "container"
+    },
+    {
+      "name": "non-root container user",
+      "status": "pass",
+      "evidence": "USER 65532:65532",
+      "remediation": "Run the application as a non-root user in the final image.",
+      "category": "container"
+    },
+    {
+      "name": "container healthcheck",
+      "status": "pass",
+      "evidence": "HEALTHCHECK found.",
+      "remediation": "Add a simple health check so deployment failures are visible.",
+      "category": "container"
+    },
+    {
+      "name": "base image digest pinning",
+      "status": "warn",
+      "evidence": "FROM python:3.12-slim",
+      "remediation": "For stronger reproducibility, pin the base image by digest after selecting the final base.",
+      "category": "container"
+    },
+    {
+      "name": "dependency review workflow",
+      "status": "pass",
+      "evidence": "dependency-review-action found.",
+      "remediation": "Add a pull-request dependency review workflow.",
+      "category": "dependencies"
+    },
+    {
+      "name": "Dependabot updates",
+      "status": "pass",
+      "evidence": "Dependabot config found.",
+      "remediation": "Enable Dependabot for GitHub Actions and package managers.",
+      "category": "dependencies"
+    },
+    {
+      "name": "policy file",
+      "status": "pass",
+      "evidence": "policy/default-policy.yml exists.",
+      "remediation": "Keep expected repository/workflow/ref in a small policy file.",
+      "category": "docs"
+    },
+    {
+      "name": "threat model",
+      "status": "pass",
+      "evidence": "docs/threat-model.md exists.",
+      "remediation": "Document what the pipeline does and does not prove.",
+      "category": "docs"
+    },
+    {
+      "name": "user guide",
+      "status": "pass",
+      "evidence": "docs/user-guide.md exists.",
+      "remediation": "Add simple copy-paste verification instructions.",
+      "category": "docs"
+    }
+  ]
+}
