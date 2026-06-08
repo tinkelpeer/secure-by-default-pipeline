@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure-by-default pipeline checker</title>
+  <style>
+    :root { color-scheme: light; --ok:#136f3a; --warn:#a45f00; --fail:#b42318; --ink:#172033; --muted:#667085; --line:#d0d5dd; --bg:#f7f8fb; --card:#ffffff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 20px 60px; }
+    header { background: linear-gradient(135deg, #182230, #344054); color: white; padding: 34px 20px; }
+    header div { max-width: 1120px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 2rem; }
+    h2 { margin-top: 32px; }
+    p { line-height: 1.55; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+    .card, form, table { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
+    .card { padding: 18px; }
+    .number { font-size: 2rem; font-weight: 700; }
+    .pass { color: var(--ok); } .warn { color: var(--warn); } .fail { color: var(--fail); }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: #f2f4f7; font-size: .9rem; color: #344054; }
+    .badge { display:inline-block; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: .8rem; }
+    .badge.pass { background:#dcfae6; } .badge.warn { background:#fef0c7; } .badge.fail { background:#fee4e2; }
+    form { padding: 18px; }
+    label { display:block; font-weight:700; margin-top: 12px; }
+    input { width:100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; }
+    button { margin-top: 18px; background:#182230; color:#fff; border:0; border-radius: 8px; padding: 11px 16px; font-weight:700; cursor:pointer; }
+    code, pre { background:#101828; color:#f9fafb; border-radius: 10px; }
+    code { padding: 2px 5px; } pre { padding: 14px; overflow:auto; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+<header><div>
+  <h1>Secure-by-default pipeline checker</h1>
+  <p>Simple overview: green is good, orange needs review, red blocks release readiness.</p>
+</div></header>
+<main>
+  <section class="grid">
+    <div class="card"><div class="number pass">{{ counts.pass }}</div><div>passing checks</div></div>
+    <div class="card"><div class="number warn">{{ counts.warn }}</div><div>warnings</div></div>
+    <div class="card"><div class="number fail">{{ counts.fail }}</div><div>failures</div></div>
+    <div class="card"><div class="number">{{ counts.total }}</div><div>total checks</div></div>
+  </section>
+
+  <h2>What this checks</h2>
+  <p>The checker looks for the thesis pipeline controls: immutable digest verification, Cosign keyless signing, GitHub provenance attestation, SBOM attestation, dependency review, pinned dependencies, and a documented deny-by-default policy.</p>
+
+  <h2>Copy/paste verification command</h2>
+  <form method="post">
+    <label>Immutable image reference</label>
+    <input name="image_ref" value="{{ image_ref }}" placeholder="ghcr.io/owner/repo@sha256:...">
+    <label>Expected GitHub repository</label>
+    <input name="repository" value="{{ repository }}">
+    <label>Expected workflow path</label>
+    <input name="workflow_path" value="{{ workflow_path }}">
+    <label>Expected branch</label>
+    <input name="branch" value="{{ branch }}">
+    <button type="submit">Make commands</button>
+  </form>
+  {% if verify_command %}
+  <p>Run this to verify a real published image:</p>
+  <pre>{{ verify_command }}</pre>
+  <p>Run this to prove the deny rule is active:</p>
+  <pre>{{ deny_command }}</pre>
+  {% endif %}
+
+  <h2>Checklist</h2>
+  <table>
+    <thead><tr><th>Status</th><th>Check</th><th>Evidence</th><th>Fix</th></tr></thead>
+    <tbody>
+    {% for r in results %}
+      <tr><td><span class="badge {{ r.status }}">{{ r.status|upper }}</span></td><td>{{ r.name }}</td><td>{{ r.evidence }}</td><td>{{ r.remediation }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="muted">Cryptographic verification still has to be run against a pushed digest with <code>cosign</code> and <code>gh</code>. This dashboard is a human-readable pre-flight overview.</p>
+</main>
+</body>
+</html>
