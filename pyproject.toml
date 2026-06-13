@@ -9,7 +9,7 @@ description = "Simple secure-by-default checker and reference pipeline for signe
 requires-python = ">=3.11"
 dependencies = [
   "Flask==3.1.3",
-  "PyYAML==6.0.2",
+  "PyYAML==6.0.3",
 ]
 
 [project.optional-dependencies]
