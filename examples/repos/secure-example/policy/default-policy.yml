@@ -1,1 +1,5 @@
-
+policy:
+  repository: example/secure-example
+  workflow_path: .github/workflows/secure-release.yml
+  branch: main
+  image_registry: ghcr.io
